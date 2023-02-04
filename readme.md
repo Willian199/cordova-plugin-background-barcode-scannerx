@@ -318,7 +318,7 @@ Name                             | Description
 `denied`                         | A boolean value which is true if the user permanently denied camera access to the app (`AVAuthorizationStatus.Denied`). Once denied, camera access can only be gained by requesting the user change their decision (consider offering a link to the setting via `openSettings()`).
 `restricted`                     | A boolean value which is true if the user is unable to grant permissions due to parental controls, organization security configuration profiles, or similar reasons. Only for iOS, on android always will be false.
 `prepared`                       | A boolean value which is true if BBScanner is prepared to capture video and render it to the view.
-`showing`                        | A boolean value which is true when the preview layer is visible (and on all platforms but `browser`, the native webview background is transparent).
+`showing`                        | A boolean value which is true when the preview layer is visible.
 `scanning`                       | A boolean value which is true if BBScanner is actively scanning for a QR code.
 `previewing`                     | A boolean value which is true if BBScanner is displaying a live preview from the device's camera. Set to false when the preview is paused.
 `lightEnabled`                   | A boolean value which is true if the light is enabled.
@@ -388,39 +388,9 @@ Unlike iOS, on Android >=6.0, permissions can be requested multiple times. If th
 Because of API limitations, `status.restricted` will always be false on the Android platform. See [#15](https://github.com/bitpay/cordova-plugin-qrscanner/issues/15) for details. Pull requests welcome!
 
 
-### Privacy Lights
+## Contributing
 
-Most devices now include a hardware-level "privacy light", which is enabled when the camera is being used. To prevent this light from being "always on" when the app is running, the browser platform disables/enables use of the camera with the `hide`, `show`, `pausePreview`, and `resumePreview` methods.
+Feel free to contribute and make a difference. 
+Whether it's fixing a bug, adding a new feature, or simply improving the documentation, every contribution counts.
+Your efforts and ideas are valuable and highly appreciated.
 
-
-## Typescript
-Type definitions for cordova-plugin-qrscanner are [available in the DefinitelyTyped project](https://github.com/DefinitelyTyped/DefinitelyTyped/blob/master/cordova-plugin-qrscanner/cordova-plugin-qrscanner.d.ts).
-
-## Contributing &amp; Testing
-
-To contribute, first install the dependencies:
-
-```sh
-npm install
-```
-
-Then setup the test project:
-
-```sh
-npm run gen-tests
-```
-
-This will create a new cordova project in the `cordova-plugin-test-projects` directory next to this repo, install `cordova-plugin-qrscanner`, and configure the [Cordova Plugin Test Framework](https://github.com/apache/cordova-plugin-test-framework). Once the platform tests are generated, the following commands are available:
-
-- `npm run test:android`
-- `npm run test:browser`
-- `npm run test:ios`
-- `npm run test:windows`
-
-Both Automatic Tests (via Cordova Plugin Test Framework's built-in [Jasmine](https://github.com/jasmine/jasmine)) and Manual Tests are available. Automatic tests confirm the existence and expected structure of the javascript API, and manual tests should be used to confirm functionality on each platform.
-
-The manual tests for the library are available without the cordova test project:
-
-- `npm run test:library`
-
-The build for this repo currently only confirms javascript style and syntax with [jshint](https://github.com/jshint/jshint). Pull requests with additional automated test methods are welcome!

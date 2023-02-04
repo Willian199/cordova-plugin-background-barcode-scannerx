@@ -89,12 +89,20 @@ class BBScanner : CDVPlugin, ZXCaptureDelegate {
         case torchUnavailable
     }
 
+
+    /// Function that sets up the `pageDidLoad` observer.
+    ///
+    /// This function sets up an observer for the `CDVPageDidLoad` notification, and when the page loads, it calls the `initSubView` function.
     override func pluginInitialize() {
         super.pluginInitialize()
         NotificationCenter.default.addObserver(self, selector: #selector(pageDidLoad), name: NSNotification.Name.CDVPageDidLoad, object: nil)
         self.initSubView()
     }
 
+    /// Function to initialize the `CameraView` object.
+    ///
+    /// This function will initialize the `CameraView` object with a given frame and add the appropriate resizing masks. 
+    /// It is called in the `pageDidLoad` method and ensures that the `CameraView` object is only initialized once.
     func initSubView() {
         if self.cameraView == nil {
             self.cameraView = CameraView(frame: CGRect(x: self.webView.frame.origin.x, y: self.webView.frame.origin.y, width: UIScreen.main.bounds.width, height: UIScreen.main.bounds.height))
@@ -108,71 +116,136 @@ class BBScanner : CDVPlugin, ZXCaptureDelegate {
         commandDelegate!.send(pluginResult, callbackId:command.callbackId)
     }
 
-    // Prepare the scanner with view
+    /// Prepares the scanner by checking the authorization status for the camera and setting up the camera view.
+    ///
+    /// - Parameter command: The command received from the JavaScript code.
+    /// - Returns: A boolean value indicating whether the preparation was successful or not.
     func prepScanner(command: CDVInvokedUrlCommand) -> Bool{
-        let status = AVCaptureDevice.authorizationStatus(for: AVMediaType.video)
-        if (status == AVAuthorizationStatus.restricted) {
-            self.sendErrorCode(command: command, error: ScannerError.camera_access_restricted)
-            return false
-        } else if status == AVAuthorizationStatus.denied {
-            self.sendErrorCode(command: command, error: ScannerError.camera_access_denied)
-            return false
-        }
+        if checkCameraPermission(command: command, requestAccess: true) {
+            do {
 
-        do {
+                if let capture = self.capture {
+                    return true
+                }
 
-            if ( self.capture != nil ){
-                return true;
+                self.initSubView()
+
+                capture = ZXCapture()
+                capture.delegate = self
+                capture.camera = capture.back()
+                backCamera = capture.back()
+                frontCamera = capture.front()
+                capture.focusMode = .continuousAutoFocus
+
+                cameraView.backgroundColor = .clear
+                webView!.superview!.insertSubview(cameraView, belowSubview: webView!)
+                cameraView.addPreviewLayer(capture)
+
+                return true
+            } catch {
+                self.sendErrorCode(command: command, error: ScannerError.unexpected_error)
             }
-
-            self.initSubView()
-
-            self.capture = ZXCapture.init()
-            self.capture.delegate  = self
-            self.capture.camera    = self.capture.back()
-            self.backCamera = self.capture.back()
-            self.frontCamera = self.capture.front()
-            self.capture.focusMode = AVCaptureDevice.FocusMode.continuousAutoFocus
-
-            cameraView.backgroundColor = UIColor.clear
-            self.webView!.superview!.insertSubview(cameraView, belowSubview: self.webView!)
-            cameraView.addPreviewLayer(self.capture)
-
-            return true
-        } catch {
-            self.sendErrorCode(command: command, error: ScannerError.unexpected_error)
         }
         return false
     }
 
-    func boolToNumberString(bool: Bool) -> String{
-        if(bool) {
-            return "1"
-        } else {
-            return "0"
+    /**
+        Function that verifies if the application has permission to access the camera. If the permission was not granted yet, it will request it.
+
+        - Parameter command: the command object used to send result back to the caller.
+        - Parameter requestAccess: a flag indicating if the function should request access to the camera if it was not granted yet.
+
+        - Returns: a boolean indicating if the application has permission to access the camera.
+    */
+    func checkCameraPermission(command: CDVInvokedUrlCommand, requestAccess: Bool) -> Bool {
+        let status = AVCaptureDevice.authorizationStatus(for: AVMediaType.video)
+        switch status {
+            case .restricted:
+                self.sendErrorCode(command: command, error: ScannerError.camera_access_restricted)
+                return false
+            case .denied:
+                self.sendErrorCode(command: command, error: ScannerError.camera_access_denied)
+                return false
+            case .authorized:
+                return true
+            case .notDetermined:
+                if requestAccess {
+                    AVCaptureDevice.requestAccess(for: AVMediaType.video) { granted in
+                        if granted {
+                            return true
+                        } else {
+                            self.sendErrorCode(command: command, error: ScannerError.camera_access_denied)
+                            return false
+                        }
+                    }
+                } else {
+                    return false
+                }
+            @unknown default:
+                return false
         }
     }
 
+    func boolToNumberString(bool: Bool) -> String{
+        return  bool ? "1" : "0"       
+    }
+
+    /**
+        Function that enables the light of the camera.
+
+        - Parameter command: the command object used to send result back to the caller.
+    */
+    @objc
+    func enableLight(_ command: CDVInvokedUrlCommand) {
+        if checkCameraPermission(command: command, requestAccess: false) {
+            self.configureLight(command: command, state: true)
+        }
+    }
+
+    /**
+        Function that disables the light of the camera.
+
+        - Parameter command: the command object used to send result back to the caller.
+    */
+    @objc
+    func disableLight(_ command: CDVInvokedUrlCommand) {
+        if checkCameraPermission(command: command, requestAccess: false) {
+            self.configureLight(command: command, state: false)
+        }
+    }
+
+    /**
+    Configures the camera light.
+
+    - Parameter command: The CDVInvokedUrlCommand object that contains information about the command.
+    - Parameter state: A boolean indicating whether to turn on (true) or turn off (false) the light.
+
+    - Note: If the torch is unavailable, a "light_unavailable" error is sent to the JavaScript callback.
+    - Note: If there is an unexpected error, an error with the code "unexpected_error" is sent to the JavaScript callback.
+    */
     func configureLight(command: CDVInvokedUrlCommand, state: Bool){
 
         do {
-            if(self.capture.captureDevice == nil ||
-                self.capture.captureDevice.hasTorch == false){
+            // Check if the torch is available for use
+            guard let captureDevice = self.capture.captureDevice, captureDevice.hasTorch else {
                 throw LightError.torchUnavailable
             }
             
-            try self.capture.captureDevice.lockForConfiguration()
+            try captureDevice.lockForConfiguration()
+            // Turn on the torch
             if (state) {
-                try self.capture.captureDevice.setTorchModeOn(level: 1)
+                try captureDevice.setTorchModeOn(level: 1)
             } else {
-                if (self.capture.captureDevice.torchMode == AVCaptureDevice.TorchMode.on) {
-                    self.capture.captureDevice.torchMode = AVCaptureDevice.TorchMode.off
+                // Turn off the torch if it's on
+                if (captureDevice.torchMode == .on) {
+                    captureDevice.torchMode = .off
                 }
             }
-            self.capture.captureDevice.unlockForConfiguration()
+            captureDevice.unlockForConfiguration()
 
             self.getStatus(command)
         } catch LightError.torchUnavailable {
+            // Return torch unavailable error
             self.sendErrorCode(command: command, error: ScannerError.light_unavailable)
         } catch let error as NSError {
             print(error.localizedDescription)
@@ -180,35 +253,31 @@ class BBScanner : CDVPlugin, ZXCaptureDelegate {
         }
     }
 
+    /// Handles the result of a barcode scan
+    /// - Parameter capture: The `ZXCapture` instance that performed the scan
+    /// - Parameter result: The `ZXResult` instance that holds the result of the scan
+    func captureResult(_ capture: ZXCapture, result: ZXResult) {
+        // Exit early if scanning is not currently in progress or if the result is nil
+        guard scanning, let resultText = result.text else { return }
 
-    // Capture data
-    func captureResult(_ capture: ZXCapture!, result: ZXResult!) {
-        if ( result == nil || scanning == false ) {
-            return;
+        // Check if there are options for the format of the barcode to be scanned
+        if let options = nextScanningCommand?.arguments[0] as? [String: Any], let format = options["format"] as? String {
+            let barcodeFormat = stringToBarcodeFormat(format: format)
+            // Exit early if the format of the result doesn't match the desired format
+            guard barcodeFormat == result.barcodeFormat else { return }
         }
 
-        if result != nil && result.text != nil {
-            let options:Dictionary<String, Any> = self.nextScanningCommand?.arguments[0] as! Dictionary<String, Any>
+        // Create a `CDVPluginResult` instance with the scan result and set its keep callback flag
+        let pluginResult = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: resultText)
+        pluginResult.setKeepCallbackAs(multipleScan)
+        // Send the result back to the caller
+        commandDelegate?.send(pluginResult, callbackId: nextScanningCommand?.callbackId)
 
-            if !options.isEmpty {
-                if options["format"] != nil {
-                    let format:ZXBarcodeFormat = self.stringToBarcodeFormat(format: options["format"] as! String)
-                    if ( format != result.barcodeFormat ){
-                        return
-                    }
-                }
-            }
-
-            //AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
-            let pluginResult = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: result.text)
-            pluginResult?.setKeepCallbackAs(multipleScan)
-            commandDelegate!.send(pluginResult, callbackId: nextScanningCommand?.callbackId!)
-
-            if !multipleScan {
-                nextScanningCommand = nil
-                scanning = false
-                self.capture.stop()
-            }
+        // If multiple scans are not enabled, clean up the scanning resources
+        if !multipleScan {
+            nextScanningCommand = nil
+            scanning = false
+            capture.destroy()
         }
     }
 
@@ -264,23 +333,21 @@ class BBScanner : CDVPlugin, ZXCaptureDelegate {
         self.clearBackgrounds(subviews: self.webView.subviews)
     }
 
-    // Create a background thread task
+    /// Runs a background task with an optional delay and completion block
+    /// - Parameter delay: The delay in seconds before the completion block is executed (default is 0.0)
+    /// - Parameter background: The block of code to be executed in the background
+    /// - Parameter completion: The block of code to be executed on the main queue after the delay
     func backgroundThread(delay: Double = 0.0, background: (() -> Void)? = nil, completion: (() -> Void)? = nil) {
-            DispatchQueue.global(qos: DispatchQoS.QoSClass.userInitiated).async {
-                if (background != nil) {
-                    background!()
-                }
-                DispatchQueue.main.asyncAfter(deadline: DispatchTime.now() + delay * Double(NSEC_PER_SEC)) {
-                    if(completion != nil){
-                        completion!()
-                    }
-                }
+        DispatchQueue.global(qos: .userInitiated).async {
+            background?()
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                completion?()
             }
+        }
     }
     
-    // ---- BEGIN EXTERNAL API ----
-
-    // Prepare the plugin
+    /// Prepares the scanner and handles the camera authorization status.
+    /// - Parameter command: The command to be passed to other functions.
     @objc
     func prepare(_ command: CDVInvokedUrlCommand){
         let status = AVCaptureDevice.authorizationStatus(for: AVMediaType.video)
@@ -302,6 +369,7 @@ class BBScanner : CDVPlugin, ZXCaptureDelegate {
             }
         }
     }
+
     @objc
     func clearBackgrounds(subviews: [UIView]){
         for subview in subviews{
@@ -309,37 +377,43 @@ class BBScanner : CDVPlugin, ZXCaptureDelegate {
             clearBackgrounds(subviews: subview.subviews)
         }
     }
+
+    /// Starts a scan operation
+    /// - Parameter command: The `CDVInvokedUrlCommand` object passed from JavaScript
     @objc
-    func scan(_ command: CDVInvokedUrlCommand){
-        if self.prepScanner(command: command) {
-            nextScanningCommand = command
-            scanning = true
-
-            if let options = command.argument(at: 0) as? Dictionary<String, Any> {
-                if let multipleScan = options["multipleScan"] as? Bool {
-                    self.multipleScan = multipleScan
-                } else {
-                    self.multipleScan = false
-                }
-            }
-
-            self.webView?.isOpaque        = false
-            self.webView?.backgroundColor = UIColor.clear
-            self.clearBackgrounds(subviews: self.webView.subviews)
-            self.cameraView.isHidden      = false
-            if !self.capture.running {
-                self.capture.start()
-            }
+    func scan(_ command: CDVInvokedUrlCommand) {
+        guard self.prepScanner(command: command) else { return }
+        
+        nextScanningCommand = command
+        scanning = true
+        
+        if let options = command.argument(at: 0) as? [String: Any] {
+            multipleScan = options["multipleScan"] as? Bool ?? false
+        }
+        
+        webView?.isOpaque = false
+        webView?.backgroundColor = .clear
+        clearBackgrounds(subviews: webView.subviews)
+        cameraView.isHidden = false
+        
+        if !capture.running {
+            capture.start()
         }
     }
 
+    /// Pauses the scanning process.
+    ///
+    /// - Parameter command: The command received from the JavaScript code.
     @objc
     func pause(_ command: CDVInvokedUrlCommand) {
         scanning = false
         let pluginResult = CDVPluginResult(status: CDVCommandStatus_OK)
-        commandDelegate!.send(pluginResult, callbackId:command.callbackId)
+        commandDelegate!.send(pluginResult, callbackId: command.callbackId)
     }
 
+    /// Resumes the scanning process.
+    ///
+    /// - Parameter command: The command received from the JavaScript code.
     @objc
     func resume(_ command: CDVInvokedUrlCommand) {
         scanning = true
@@ -404,41 +478,28 @@ class BBScanner : CDVPlugin, ZXCaptureDelegate {
        }
     }
 
-    @objc
-    func enableLight(_ command: CDVInvokedUrlCommand) {
-        if(self.prepScanner(command: command)){
-            self.configureLight(command: command, state: true)
+    /**
+        Destroys the camera capture object and removes its associated view.
+
+        - Parameter command: The CDVInvokedUrlCommand object that contains information about the command.
+    */
+    @objc func destroy(_ command: CDVInvokedUrlCommand) {
+        if let cameraView = self.cameraView {
+            cameraView.isHidden = true
+            cameraView.removePreviewLayer()
+            cameraView.removeFromSuperview()
         }
+        self.cameraView = nil
+
+        if let capture = self.capture {
+            capture.stop()
+        }
+        self.capture = nil
+        
+        self.currentCamera = 0
+
+        self.getStatus(command)
     }
-
-    @objc
-    func disableLight(_ command: CDVInvokedUrlCommand) {
-        if(self.prepScanner(command: command)){
-            self.configureLight(command: command, state: false)
-        }
-    }
-
-    // Destroy a plugin
-    @objc
-    func destroy(_ command: CDVInvokedUrlCommand) {
-
-        if self.cameraView != nil {
-            self.cameraView.isHidden = true
-        }
-
-        if self.capture != nil {
-            self.capture.stop()
-                self.cameraView.removePreviewLayer()
-                self.cameraView.removeFromSuperview()
-                self.cameraView = nil
-                self.capture = nil
-                self.currentCamera = 0
-                self.getStatus(command)
-        } else {
-            self.getStatus(command)
-        }
-    }
-
 
     // Return the plugin's status to javscript console
     @objc
