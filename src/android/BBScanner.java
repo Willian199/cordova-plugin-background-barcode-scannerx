@@ -295,14 +295,21 @@ public class BBScanner extends CordovaPlugin implements BarcodeCallback {
         // Create a new CameraInfo object.
         Camera.CameraInfo info = new Camera.CameraInfo();
         // Loop through all available cameras.
-        for (int i = 0; i < numCameras; i++) {
-            // Get the information for each camera.
-            Camera.getCameraInfo(i, info);
-            // Check if the camera is facing front.
-            if (info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT) {
-                // If a front facing camera is found, return true.
-                return true;
+        try{
+            for (int i = 0; i < numCameras; i++) {
+                // Get the information for each camera.
+                // throw a RuntimeException with the message "Fail to get camera info"
+                //This can happen if the camera service is not available, if another app is using the camera, or if the camera has been disabled by the user.
+                Camera.getCameraInfo(i, info);
+                // Check if the camera is facing front.
+                if (info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT) {
+                    // If a front facing camera is found, return true.
+                    return true;
+                }
             }
+        } catch (RuntimeException e) {
+            // Handle the exception appropriately.
+            return false;
         }
         // If no front facing camera is found, return false.
         return false;
@@ -634,7 +641,7 @@ public class BBScanner extends CordovaPlugin implements BarcodeCallback {
             // Start the barcode scanning
             if (mBarcodeView != null && webView.getView() != null) {
                 runOnUiThread(() -> {
-                    webView.getView().setBackgroundColor(Color.argb(1, 0, 0, 0));
+                    webView.getView().setBackgroundColor(Color.TRANSPARENT);
                     showing = true;
                     mBarcodeView.setVisibility(View.VISIBLE);
                     mBarcodeView.decodeContinuous(b);
@@ -675,7 +682,7 @@ public class BBScanner extends CordovaPlugin implements BarcodeCallback {
      */
     private void show(final CallbackContext callbackContext) {
         runOnUiThread(() -> {
-            webView.getView().setBackgroundColor(Color.argb(1, 0, 0, 0));
+            webView.getView().setBackgroundColor(Color.TRANSPARENT);
             showing = true;
             mBarcodeView.setVisibility(View.VISIBLE);
             if (callbackContext != null)

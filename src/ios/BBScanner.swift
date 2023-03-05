@@ -350,24 +350,12 @@ class BBScanner : CDVPlugin, ZXCaptureDelegate {
     /// - Parameter command: The command to be passed to other functions.
     @objc
     func prepare(_ command: CDVInvokedUrlCommand){
-        let status = AVCaptureDevice.authorizationStatus(for: AVMediaType.video)
-        if (status == AVAuthorizationStatus.notDetermined) {
-            // Request permission before preparing scanner
-            AVCaptureDevice.requestAccess(for: AVMediaType.video, completionHandler: { (granted) -> Void in
-                // attempt to prepScanner only after the request returns
-                self.backgroundThread(delay: 0, completion: {
-                    if(self.prepScanner(command: command)){
-                        self.cameraView.isHidden = true
-                        self.capture.stop()
-                        self.getStatus(command)
-                    }
-                })
-            })
-        } else {
-            if(self.prepScanner(command: command)){
-                self.getStatus(command)
-            }
-        }
+
+        guard self.prepScanner(command: command) else { return }
+
+        self.cameraView?.isHidden = true
+        self.capture?.stop()
+        self.getStatus(command)
     }
 
     @objc
