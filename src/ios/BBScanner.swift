@@ -358,10 +358,12 @@ class BBScanner : CDVPlugin, ZXCaptureDelegate {
         self.getStatus(command)
     }
 
-    @objc
-    func clearBackgrounds(subviews: [UIView]){
-        for subview in subviews{
-            subview.backgroundColor = UIColor.clear
+    /// Helper method to clear background of subviews
+    private func clearBackgrounds(subviews: [UIView]?) {
+        subviews?.forEach { subview in
+            subview.isOpaque = false
+            subview.backgroundColor = .clear
+            subview.scrollView.backgroundColor = .clear
             clearBackgrounds(subviews: subview.subviews)
         }
     }
@@ -374,17 +376,23 @@ class BBScanner : CDVPlugin, ZXCaptureDelegate {
         
         nextScanningCommand = command
         scanning = true
-        
-        if let options = command.argument(at: 0) as? [String: Any] {
-            multipleScan = options["multipleScan"] as? Bool ?? false
+
+        if let jsonString = command.argument(at: 0) as? String,
+            let jsonData = jsonString.data(using: .utf8) {
+                do {
+                    let options = try JSONDecoder().decode([String: Any].self, from: jsonData)
+                    self.multipleScan = options["multipleScan"] as? Bool ?? false
+                } catch {
+                    self.sendErrorCode(command: command, error: ScannerError.unexpected_error)
+                }
         }
         
         webView?.isOpaque = false
         webView?.backgroundColor = .clear
-        clearBackgrounds(subviews: webView.subviews)
+        clearBackgrounds(subviews: webView?.subviews)
         cameraView.isHidden = false
         
-        if !capture.running {
+        if !capture.isRunning {
             capture.start()
         }
     }
